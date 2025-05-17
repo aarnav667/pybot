@@ -1,25 +1,41 @@
+# pybot_streamlit_advanced.py
 import streamlit as st
 import pickle
 import csv
 import os
 import re
 import requests
+import speech_recognition as sr
+from gtts import gTTS
 from difflib import get_close_matches
 from bs4 import BeautifulSoup
+from streamlit_extras.switch_page_button import switch_page
 
-# ---------------- Initial Setup ---------------- #
-SCORE_FILE = 'scoreboard.pkl'
-KNOWLEDGE_FILE = 'knowledge.pkl'
-KNOWLEDGE_CSV = 'knowledge.csv'
+# ---------------- File Paths ---------------- #
+DATA_DIR = "user_data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
 
-# ---------------- Mood Settings ---------------- #
+def get_user_file(user, name):
+    return os.path.join(DATA_DIR, f"{user}_{name}.pkl")
+
+def get_user_chat_file(user):
+    return os.path.join(DATA_DIR, f"{user}_chat.txt")
+
+# ---------------- Streamlit Session State ---------------- #
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "current_mood" not in st.session_state:
+    st.session_state.current_mood = "neutral"
+
 MOODS = {
     "happy": {"prefix": "😄 PyBot (Happy): ", "rate": 180},
     "angry": {"prefix": "😡 PyBot (Angry): ", "rate": 200},
     "sad": {"prefix": "😢 PyBot (Sad): ", "rate": 120},
     "neutral": {"prefix": "🤖 PyBot: ", "rate": 160}
 }
-current_mood = "neutral"
 
 # ---------------- Load & Save Data ---------------- #
 def load_data(file_name):
@@ -32,52 +48,52 @@ def save_data(data, file_name):
     with open(file_name, 'wb') as f:
         pickle.dump(data, f)
 
-def save_to_csv(knowledge):
-    with open(KNOWLEDGE_CSV, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Question', 'Answer'])
-        for question, answer in knowledge.items():
-            writer.writerow([question, answer])
+def append_chat(username, user_input, response):
+    with open(get_user_chat_file(username), 'a', encoding='utf-8') as f:
+        f.write(f"User: {user_input}\n{MOODS[st.session_state.current_mood]['prefix']}{response}\n\n")
 
-def load_from_csv():
-    knowledge = {}
-    if os.path.exists(KNOWLEDGE_CSV):
-        with open(KNOWLEDGE_CSV, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                knowledge[row['Question'].lower()] = row['Answer']
-    return knowledge
+def read_chat_history(username):
+    path = get_user_chat_file(username)
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return "No chat history found."
 
-# Load data
+# ---------------- Authentication ---------------- #
+if not st.session_state.logged_in:
+    st.title("🔐 Login to PyBot")
+    username = st.text_input("Enter your username")
+    if st.button("Login") and username:
+        st.session_state.logged_in = True
+        st.session_state.username = username
+        st.experimental_rerun()
+    st.stop()
+
+username = st.session_state.username
+SCORE_FILE = get_user_file(username, "scores")
+KNOWLEDGE_FILE = get_user_file(username, "knowledge")
+
+# ---------------- Load Data ---------------- #
 scores = load_data(SCORE_FILE)
 learned_knowledge = load_data(KNOWLEDGE_FILE)
-learned_knowledge.update(load_from_csv())
 
 # ---------------- Knowledge Base ---------------- #
 responses = {
     "hi": "Hello! I can chat, solve math problems, play games, and teach Python.",
-    "hello": "Hi there! You can ask me Python-related questions.",
-    "how are you?": "I'm just a bot, but I'm here to help you with Python and math!",
-    "who are you?": "I'm PyBot, your Python learning assistant.",
     "bye": "Goodbye! Keep practicing Python!",
-    "help": "Try commands like 'Lucky 7', 'Rock Paper Scissors', 'Guess the Number', or ask me a math question.",
     "games": "Available games: Lucky 7, Rock Paper Scissors, Guess the Number"
 }
-
 python_keywords = {
-    "if": "Used for decision-making. Example:\nif x > 0:\n    print('Positive number')",
-    "list": "A collection which is ordered and changeable. Example:\nmylist = [1, 2, 3]"
+    "if": "Used for decision-making. Example:\nif x > 0:\n    print('Positive number')"
 }
-
 python_topics = {
     "what is python?": "Python is a high-level, interpreted programming language."
 }
 
-# ---------------- Core Functions ---------------- #
+# ---------------- Utility Functions ---------------- #
 def set_mood(mood_name):
-    global current_mood
     if mood_name.lower() in MOODS:
-        current_mood = mood_name.lower()
+        st.session_state.current_mood = mood_name.lower()
         return f"Mood set to {mood_name}"
     return "Unknown mood. Choose from: happy, sad, angry, neutral."
 
@@ -96,11 +112,11 @@ def google_search(query):
         search_url = f"https://www.google.com/search?q={query}"
         response = requests.get(search_url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
-        snippet = soup.find('div', class_='BNeawe s3v9rd AP7Wnd')
-        if snippet:
-            return snippet.text
-        else:
-            return "No direct answer found. Try checking Google directly."
+        snippets = soup.select('div.BNeawe.s3v9rd.AP7Wnd')
+        for s in snippets:
+            if s.text.strip():
+                return s.text.strip()
+        return "No direct answer found. Try checking Google directly."
     except Exception as e:
         return f"Failed to search. Error: {str(e)}"
 
@@ -125,21 +141,36 @@ def get_response(user_input):
         return match
 
     response = google_search(user_input)
-    learned_knowledge[user_input] = response
+    learned_knowledge[user_input] = response  # Learn from mistake
     save_data(learned_knowledge, KNOWLEDGE_FILE)
-    save_to_csv(learned_knowledge)
     return response
 
 # ---------------- Streamlit UI ---------------- #
 st.title("🤖 PyBot - Your Python Learning Assistant")
 
 with st.sidebar:
-    st.header("Settings")
-    selected_mood = st.selectbox("Choose Mood", list(MOODS.keys()), index=list(MOODS.keys()).index(current_mood))
-    set_mood(selected_mood)
-    st.write("Current Mood:", MOODS[current_mood]['prefix'])
+    st.header(f"Welcome, {username}")
+    selected_mood = st.selectbox("Choose Mood", list(MOODS.keys()), index=list(MOODS.keys()).index(st.session_state.current_mood))
+    mood_message = set_mood(selected_mood)
+    st.write("Current Mood:", MOODS[st.session_state.current_mood]['prefix'])
+    if st.button("View Chat History"):
+        st.info(read_chat_history(username))
 
 user_input = st.text_input("Ask me anything:")
+if st.button("Speak"):
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.info("Listening...")
+        audio = recognizer.listen(source)
+        try:
+            user_input = recognizer.recognize_google(audio)
+            st.success(f"You said: {user_input}")
+        except sr.UnknownValueError:
+            st.error("Sorry, I could not understand your speech.")
+        except sr.RequestError:
+            st.error("Speech recognition service failed.")
+
 if user_input:
     response = get_response(user_input)
-    st.markdown(f"{MOODS[current_mood]['prefix']} **{response}**")
+    st.markdown(f"{MOODS[st.session_state.current_mood]['prefix']} **{response}**")
+    append_chat(username, user_input, response)
