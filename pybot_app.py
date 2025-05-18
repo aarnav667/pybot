@@ -1,128 +1,91 @@
-# pybot_streamlit_advanced.py
 import streamlit as st
 import pickle
 import csv
 import os
 import re
 import requests
-import speech_recognition as sr
-from gtts import gTTS
 from difflib import get_close_matches
 from bs4 import BeautifulSoup
-from streamlit_extras.switch_page_button import switch_page
+from gtts import gTTS
+import tempfile
+import base64
 
-# ---------------- File Paths ---------------- #
-DATA_DIR = "user_data"
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
+# ---------- Files ---------- #
+SCORE_FILE = 'scoreboard.pkl'
+KNOWLEDGE_FILE = 'knowledge.pkl'
+KNOWLEDGE_CSV = 'knowledge.csv'
+USERS = {'admin': '1234', 'student': 'python'}  # Simple login system
 
-def get_user_file(user, name):
-    return os.path.join(DATA_DIR, f"{user}_{name}.pkl")
-
-def get_user_chat_file(user):
-    return os.path.join(DATA_DIR, f"{user}_chat.txt")
-
-# ---------------- Streamlit Session State ---------------- #
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "current_mood" not in st.session_state:
-    st.session_state.current_mood = "neutral"
-
+# ---------- Mood Settings ---------- #
 MOODS = {
-    "happy": {"prefix": "😄 PyBot (Happy): ", "rate": 180},
-    "angry": {"prefix": "😡 PyBot (Angry): ", "rate": 200},
-    "sad": {"prefix": "😢 PyBot (Sad): ", "rate": 120},
-    "neutral": {"prefix": "🤖 PyBot: ", "rate": 160}
+    "happy": {"prefix": "😄 PyBot (Happy): "},
+    "angry": {"prefix": "😡 PyBot (Angry): "},
+    "sad": {"prefix": "😢 PyBot (Sad): "},
+    "neutral": {"prefix": "🤖 PyBot: "}
 }
+if "mood" not in st.session_state:
+    st.session_state.mood = "neutral"
 
-# ---------------- Load & Save Data ---------------- #
+# ---------- Load & Save ---------- #
 def load_data(file_name):
-    if os.path.exists(file_name):
-        with open(file_name, 'rb') as f:
-            return pickle.load(f)
-    return {}
+    return pickle.load(open(file_name, 'rb')) if os.path.exists(file_name) else {}
 
 def save_data(data, file_name):
-    with open(file_name, 'wb') as f:
-        pickle.dump(data, f)
+    pickle.dump(data, open(file_name, 'wb'))
 
-def append_chat(username, user_input, response):
-    with open(get_user_chat_file(username), 'a', encoding='utf-8') as f:
-        f.write(f"User: {user_input}\n{MOODS[st.session_state.current_mood]['prefix']}{response}\n\n")
+def save_to_csv(knowledge):
+    with open(KNOWLEDGE_CSV, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Question', 'Answer'])
+        for q, a in knowledge.items():
+            writer.writerow([q, a])
 
-def read_chat_history(username):
-    path = get_user_chat_file(username)
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return f.read()
-    return "No chat history found."
+def load_from_csv():
+    knowledge = {}
+    if os.path.exists(KNOWLEDGE_CSV):
+        with open(KNOWLEDGE_CSV, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                knowledge[row['Question'].lower()] = row['Answer']
+    return knowledge
 
-# ---------------- Authentication ---------------- #
-if not st.session_state.logged_in:
-    st.title("🔐 Login to PyBot")
-    username = st.text_input("Enter your username")
-    if st.button("Login") and username:
-        st.session_state.logged_in = True
-        st.session_state.username = username
-        st.experimental_rerun()
-    st.stop()
+# ---------- Voice --------- #
+def text_to_speech(text):
+    tts = gTTS(text)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+        tts.save(fp.name)
+        audio_file = open(fp.name, 'rb')
+        audio_bytes = audio_file.read()
+        b64 = base64.b64encode(audio_bytes).decode()
+        md = f"""
+        <audio autoplay>
+        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        """
+        st.markdown(md, unsafe_allow_html=True)
 
-username = st.session_state.username
-SCORE_FILE = get_user_file(username, "scores")
-KNOWLEDGE_FILE = get_user_file(username, "knowledge")
-
-# ---------------- Load Data ---------------- #
-scores = load_data(SCORE_FILE)
-learned_knowledge = load_data(KNOWLEDGE_FILE)
-
-# ---------------- Knowledge Base ---------------- #
-responses = {
-    "hi": "Hello! I can chat, solve math problems, play games, and teach Python.",
-    "bye": "Goodbye! Keep practicing Python!",
-    "games": "Available games: Lucky 7, Rock Paper Scissors, Guess the Number"
-}
-python_keywords = {
-    "if": "Used for decision-making. Example:\nif x > 0:\n    print('Positive number')"
-}
-python_topics = {
-    "what is python?": "Python is a high-level, interpreted programming language."
-}
-
-# ---------------- Utility Functions ---------------- #
-def set_mood(mood_name):
-    if mood_name.lower() in MOODS:
-        st.session_state.current_mood = mood_name.lower()
-        return f"Mood set to {mood_name}"
-    return "Unknown mood. Choose from: happy, sad, angry, neutral."
-
+# ---------- Search / Logic ---------- #
 def calculate(expression):
     try:
         if re.match(r"^[\d\s\+\-\*/\.\(\)]+$", expression):
             return f"The answer is {eval(expression)}"
-        else:
-            return "Invalid math expression."
+        return "Invalid math expression."
     except Exception as e:
         return f"Error: {str(e)}"
 
 def google_search(query):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        search_url = f"https://www.google.com/search?q={query}"
-        response = requests.get(search_url, headers=headers)
+        url = f"https://www.google.com/search?q={query}"
+        response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
-        snippets = soup.select('div.BNeawe.s3v9rd.AP7Wnd')
-        for s in snippets:
-            if s.text.strip():
-                return s.text.strip()
-        return "No direct answer found. Try checking Google directly."
+        snippet = soup.find('div', class_='BNeawe s3v9rd AP7Wnd')
+        return snippet.text if snippet else "No direct answer found."
     except Exception as e:
-        return f"Failed to search. Error: {str(e)}"
+        return f"Search error: {str(e)}"
 
-def search_knowledge(user_input):
-    all_sources = [learned_knowledge, responses, python_topics, python_keywords]
-    for source in all_sources:
+def search_knowledge(user_input, sources):
+    for source in sources:
         match = get_close_matches(user_input.lower(), source.keys(), n=1, cutoff=0.7)
         if match:
             return source[match[0]]
@@ -130,47 +93,80 @@ def search_knowledge(user_input):
 
 def get_response(user_input):
     if user_input.lower().startswith("set mood"):
-        return set_mood(user_input.replace("set mood", "").strip())
-    elif any(op in user_input for op in ['+', '-', '*', '/']):
-        return calculate(user_input)
-    elif user_input.lower() == "show scores":
-        return '\n'.join([f"{k}: {v}" for k, v in scores.items()]) or "No scores yet."
+        mood = user_input.split()[-1]
+        if mood in MOODS:
+            st.session_state.mood = mood
+            return f"Mood set to {mood}."
+        return "Unknown mood."
 
-    match = search_knowledge(user_input)
-    if match:
-        return match
+    if any(op in user_input for op in ['+', '-', '*', '/']):
+        return calculate(user_input)
+
+    if user_input.lower() == "show scores":
+        return '\n'.join([f"{k}: {v}" for k, v in st.session_state.scores.items()]) or "No scores yet."
+
+    response = search_knowledge(user_input, [st.session_state.knowledge, responses, python_topics, python_keywords])
+    if response:
+        return response
 
     response = google_search(user_input)
-    learned_knowledge[user_input] = response  # Learn from mistake
-    save_data(learned_knowledge, KNOWLEDGE_FILE)
+    st.session_state.knowledge[user_input] = response
+    save_data(st.session_state.knowledge, KNOWLEDGE_FILE)
+    save_to_csv(st.session_state.knowledge)
     return response
 
-# ---------------- Streamlit UI ---------------- #
-st.title("🤖 PyBot - Your Python Learning Assistant")
+# ---------- Default Data ---------- #
+responses = {
+    "hi": "Hello! I can chat, solve math, play games, and teach Python.",
+    "bye": "Goodbye! Keep learning.",
+    "games": "Try Lucky 7, Rock Paper Scissors, Guess the Number!",
+    "help": "Ask me Python, Math or try a command like 'Lucky 7'."
+}
+
+python_keywords = {
+    "if": "Used for decision-making. Example:\nif x > 0:\n    print('Positive')",
+    "list": "An ordered, changeable collection. Example: mylist = [1, 2, 3]"
+}
+
+python_topics = {
+    "what is python?": "Python is a high-level, interpreted programming language."
+}
+
+# ---------- Session Setup ---------- #
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "scores" not in st.session_state:
+    st.session_state.scores = load_data(SCORE_FILE)
+if "knowledge" not in st.session_state:
+    st.session_state.knowledge = load_data(KNOWLEDGE_FILE)
+    st.session_state.knowledge.update(load_from_csv())
+
+# ---------- Login UI ---------- #
+if not st.session_state.logged_in:
+    st.title("🔐 PyBot Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Log in"):
+        if username in USERS and USERS[username] == password:
+            st.session_state.logged_in = True
+            st.success("Login successful!")
+            st.experimental_rerun()
+        else:
+            st.error("Invalid username or password.")
+    st.stop()
+
+# ---------- Main App UI ---------- #
+st.title("🤖 PyBot - Python Learning Assistant")
 
 with st.sidebar:
-    st.header(f"Welcome, {username}")
-    selected_mood = st.selectbox("Choose Mood", list(MOODS.keys()), index=list(MOODS.keys()).index(st.session_state.current_mood))
-    mood_message = set_mood(selected_mood)
-    st.write("Current Mood:", MOODS[st.session_state.current_mood]['prefix'])
-    if st.button("View Chat History"):
-        st.info(read_chat_history(username))
+    st.header("Settings")
+    mood = st.selectbox("Choose Mood", list(MOODS.keys()), index=list(MOODS.keys()).index(st.session_state.mood))
+    st.session_state.mood = mood
+    st.write("Current Mood:", MOODS[st.session_state.mood]["prefix"])
 
 user_input = st.text_input("Ask me anything:")
-if st.button("Speak"):
-    recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.info("Listening...")
-        audio = recognizer.listen(source)
-        try:
-            user_input = recognizer.recognize_google(audio)
-            st.success(f"You said: {user_input}")
-        except sr.UnknownValueError:
-            st.error("Sorry, I could not understand your speech.")
-        except sr.RequestError:
-            st.error("Speech recognition service failed.")
 
 if user_input:
-    response = get_response(user_input)
-    st.markdown(f"{MOODS[st.session_state.current_mood]['prefix']} **{response}**")
-    append_chat(username, user_input, response)
+    reply = get_response(user_input)
+    st.markdown(f"{MOODS[st.session_state.mood]['prefix']} **{reply}**")
+    text_to_speech(reply)
