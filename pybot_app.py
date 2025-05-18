@@ -4,18 +4,21 @@ import csv
 import os
 import re
 import requests
-from difflib import get_close_matches, SequenceMatcher
+from difflib import get_close_matches
 from bs4 import BeautifulSoup
 from gtts import gTTS
 import tempfile
 import base64
 import speech_recognition as sr
+import random
+import pandas as pd
 
 # ---------- Files ---------- #
 SCORE_FILE = 'scoreboard.pkl'
 KNOWLEDGE_FILE = 'knowledge.pkl'
 KNOWLEDGE_CSV = 'knowledge.csv'
 USERS_FILE = 'users.pkl'
+CHAT_HISTORY_FILE = 'chat_history.csv'
 
 # ---------- Mood Settings ---------- #
 MOODS = {
@@ -49,6 +52,21 @@ def load_from_csv():
             for row in reader:
                 knowledge[row['Question'].lower()] = row['Answer']
     return knowledge
+
+def save_chat(username, user_input, reply):
+    new_row = pd.DataFrame([[username, user_input, reply]], columns=["User", "Input", "Reply"])
+    if os.path.exists(CHAT_HISTORY_FILE):
+        df = pd.read_csv(CHAT_HISTORY_FILE)
+        df = pd.concat([df, new_row], ignore_index=True)
+    else:
+        df = new_row
+    df.to_csv(CHAT_HISTORY_FILE, index=False)
+
+def get_user_history(username):
+    if os.path.exists(CHAT_HISTORY_FILE):
+        df = pd.read_csv(CHAT_HISTORY_FILE)
+        return df[df['User'] == username][['Input', 'Reply']].values.tolist()
+    return []
 
 def suggest_username(name, user_dict):
     if name not in user_dict:
@@ -89,7 +107,7 @@ def google_search(query):
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         snippet = soup.find('div', class_='BNeawe s3v9rd AP7Wnd')
-        return snippet.text if snippet else "No direct answer found, but I searched Google."
+        return snippet.text if snippet else "I couldn't find a direct answer, but I searched Google for you."
     except Exception as e:
         return f"Search error: {str(e)}"
 
@@ -101,28 +119,29 @@ def search_knowledge(user_input, sources):
     return None
 
 def get_response(user_input):
-    if user_input.lower().startswith("set mood"):
-        mood = user_input.split()[-1]
-        if mood in MOODS:
-            st.session_state.mood = mood
-            return f"Mood set to {mood}."
-        return "Unknown mood."
+    user_input_lower = user_input.lower()
+    reply = (
+        search_knowledge(user_input_lower, [st.session_state.knowledge, responses, python_keywords, python_topics])
+        or calculate(user_input_lower)
+        or google_search(user_input_lower)
+        or "I'm not sure about that. Can you rephrase?"
+    )
+    return reply
 
-    if any(op in user_input for op in ['+', '-', '*', '/']):
-        return calculate(user_input)
+# ---------- Games ---------- #
+def play_lucky_7():
+    number = random.randint(1, 10)
+    if number == 7:
+        return "You got Lucky 7! 🎉"
+    return f"You got {number}. Try again!"
 
-    if user_input.lower() == "show scores":
-        return '\n'.join([f"{k}: {v}" for k, v in st.session_state.scores.items()]) or "No scores yet."
+def play_rps():
+    choices = ["rock", "paper", "scissors"]
+    bot = random.choice(choices)
+    return f"I chose {bot}. What's your pick?"
 
-    response = search_knowledge(user_input, [st.session_state.knowledge, responses, python_topics, python_keywords])
-    if response:
-        return response
-
-    response = google_search(user_input)
-    st.session_state.knowledge[user_input] = response
-    save_data(st.session_state.knowledge, KNOWLEDGE_FILE)
-    save_to_csv(st.session_state.knowledge)
-    return response
+def play_guess():
+    return f"I'm thinking of a number between 1 and 5. Try refreshing and guessing again! It was {random.randint(1, 5)}."
 
 # ---------- Default Data ---------- #
 responses = {
@@ -162,6 +181,7 @@ if not st.session_state.logged_in:
     if mode == "Log in" and st.button("Log in"):
         if username in st.session_state.users and st.session_state.users[username] == password:
             st.session_state.logged_in = True
+            st.session_state.username = username
             st.success("Login successful!")
             st.rerun()
         else:
@@ -188,7 +208,22 @@ with st.sidebar:
     st.session_state.mood = mood
     st.write("Current Mood:", MOODS[st.session_state.mood]["prefix"])
 
-user_input = st.text_input("Ask me anything:")
+    st.subheader("🎮 Games")
+    game_option = st.radio("Choose a game", ["None", "Lucky 7", "Rock Paper Scissors", "Guess the Number"])
+
+    st.subheader("🕑 Previous Chats")
+    history = get_user_history(st.session_state.username)
+    for h_input, h_reply in reversed(history[-10:]):
+        st.markdown(f"**You:** {h_input}")
+        st.markdown(f"**PyBot:** {h_reply}")
+
+if "voice_input" not in st.session_state:
+    st.session_state.voice_input = ""
+
+st.subheader("💬 Chat with PyBot")
+text_prompt = "Ask me anything (or use voice input):"
+user_input = st.text_input(text_prompt, value=st.session_state.voice_input)
+st.session_state.voice_input = ""
 
 if st.button("🎙️ Voice Input"):
     r = sr.Recognizer()
@@ -196,14 +231,26 @@ if st.button("🎙️ Voice Input"):
         st.info("Listening...")
         audio = r.listen(source)
         try:
-            user_input = r.recognize_google(audio)
-            st.success(f"You said: {user_input}")
+            text = r.recognize_google(audio)
+            st.success(f"You said: {text}")
+            st.session_state.voice_input = text
+            st.rerun()
         except sr.UnknownValueError:
             st.error("Could not understand audio")
         except sr.RequestError as e:
             st.error(f"Could not request results; {e}")
 
 if user_input:
-    reply = get_response(user_input)
+    user_input_lower = user_input.lower()
+    if "lucky 7" in user_input_lower or game_option == "Lucky 7":
+        reply = play_lucky_7()
+    elif "rock" in user_input_lower or "paper" in user_input_lower or "scissors" in user_input_lower or game_option == "Rock Paper Scissors":
+        reply = play_rps()
+    elif "guess" in user_input_lower or game_option == "Guess the Number":
+        reply = play_guess()
+    else:
+        reply = get_response(user_input)
+
     st.markdown(f"{MOODS[st.session_state.mood]['prefix']} **{reply}**")
     text_to_speech(reply)
+    save_chat(st.session_state.username, user_input, reply)
