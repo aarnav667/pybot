@@ -4,3 +4,4 @@ SpeechRecognition
 beautifulsoup4
 requests
 colorama
+gTTS
