@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from gtts import gTTS
 import tempfile
 import base64
-import speech_recognition as sr
 import random
 import pandas as pd
 import time
@@ -19,7 +18,8 @@ SCORE_FILE = 'scoreboard.pkl'
 KNOWLEDGE_FILE = 'knowledge.pkl'
 KNOWLEDGE_CSV = 'knowledge.csv'
 USERS_FILE = 'users.pkl'
-CHAT_HISTORY_FILE = 'chat_history.csv'
+CHAT_HISTORY_DIR = 'chat_histories'
+os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
 
 # ---------- Mood Settings ---------- #
 MOODS = {
@@ -65,28 +65,28 @@ def load_from_csv():
                 knowledge[row['Question'].lower()] = row['Answer']
     return knowledge
 
+def get_chat_file(username):
+    return os.path.join(CHAT_HISTORY_DIR, f"{username}.csv")
+
 def save_chat(username, user_input, reply):
-    new_row = pd.DataFrame([[username, user_input, reply]], columns=["User", "Input", "Reply"])
-    if os.path.exists(CHAT_HISTORY_FILE):
-        df = pd.read_csv(CHAT_HISTORY_FILE)
+    chat_file = get_chat_file(username)
+    new_row = pd.DataFrame([[user_input, reply]], columns=["Input", "Reply"])
+    if os.path.exists(chat_file):
+        df = pd.read_csv(chat_file)
         df = pd.concat([df, new_row], ignore_index=True)
     else:
         df = new_row
-    df.to_csv(CHAT_HISTORY_FILE, index=False)
+    df.to_csv(chat_file, index=False)
 
 def get_user_history(username):
-    if os.path.exists(CHAT_HISTORY_FILE):
-        df = pd.read_csv(CHAT_HISTORY_FILE)
-        return df[df['User'] == username][['Input', 'Reply']].values.tolist()
+    chat_file = get_chat_file(username)
+    if os.path.exists(chat_file):
+        df = pd.read_csv(chat_file)
+        return df[['Input', 'Reply']].values.tolist()
     return []
 
-def suggest_username(name, user_dict):
-    if name not in user_dict:
-        return name
-    i = 1
-    while f"{name}{i}" in user_dict:
-        i += 1
-    return f"{name}{i}"
+def get_user_chat_sessions():
+    return [f.replace('.csv', '') for f in os.listdir(CHAT_HISTORY_DIR) if f.endswith('.csv')]
 
 # ---------- Voice --------- #
 def text_to_speech(text):
@@ -172,11 +172,19 @@ if not st.session_state.logged_in:
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
 
+    def suggest_username(name, user_dict):
+        if name not in user_dict:
+            return name
+        i = 1
+        while f"{name}{i}" in user_dict:
+            i += 1
+        return f"{name}{i}"
+
     if mode == "Log in" and st.button("Log in"):
         if username in st.session_state.users and st.session_state.users[username] == password:
             st.session_state.logged_in = True
             st.session_state.username = username
-            st.query_params.update({"user": username})
+            st.experimental_set_query_params(user=username)
             st.success("Login successful!")
             st.rerun()
         else:
@@ -194,10 +202,18 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-# ---------- Main App UI ---------- #
+# ---------- Main App Layout ---------- #
 st.set_page_config(page_title="PyBot", layout="wide")
-st.sidebar.title("🛠️ Settings")
+st.sidebar.title("⚙️ Settings")
 st.sidebar.selectbox("Choose Mood", list(MOODS.keys()), key="mood")
+if st.sidebar.button("Logout"):
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+    st.experimental_set_query_params()
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("🌟 [Rate PyBot](https://forms.gle/your-form-link)")
 
 st.title("🤖 Welcome to PyBot")
 st.markdown(f"### {MOODS[st.session_state.mood]['prefix']} How can I assist you today?")
@@ -210,8 +226,13 @@ if st.button("Send") and user_input:
     st.markdown(f"**{MOODS[st.session_state.mood]['prefix']}** {reply}")
     text_to_speech(reply)
 
-with st.expander("📜 Chat History"):
-    history = get_user_history(st.session_state.username)
-    for msg in history[-10:][::-1]:
-        st.markdown(f"**You:** {msg[0]}")
-        st.markdown(f"**{MOODS[st.session_state.mood]['prefix']}** {msg[1]}")
+st.markdown("---")
+with st.expander("📂 Past Conversations"):
+    sessions = get_user_chat_sessions()
+    for session in sessions:
+        if session == st.session_state.username:
+            history = get_user_history(session)
+            st.markdown(f"### Chat with {session}")
+            for msg in history[-10:][::-1]:
+                st.markdown(f"**You:** {msg[0]}")
+                st.markdown(f"**{MOODS[st.session_state.mood]['prefix']}** {msg[1]}")
