@@ -123,12 +123,13 @@ def search_knowledge(user_input, sources):
 def get_response(user_input):
     user_input_lower = user_input.lower()
     reply = (
-        search_knowledge(user_input_lower, [st.session_state.knowledge, responses, python_keywords, python_topics])
+        search_knowledge(user_input_lower, [st.session_state.knowledge])
         or calculate(user_input_lower)
         or google_search(user_input_lower)
         or "I'm not sure about that. Can you rephrase?"
     )
     return reply
+
 
 # ---------- Session Setup ---------- #
 cookie = st.query_params.get("user")
@@ -179,78 +180,129 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-# Continue with main app UI setup below as-is...
-# ---------- Main App UI ---------- #
-st.title(f"🤖 PyBot - Python Learning Assistant ({st.session_state.username})")
+# Continue with main app UI setup below as-is...import time
 
-with st.sidebar:
-    st.header("Settings")
-    mood = st.selectbox("Choose Mood", list(MOODS.keys()), index=list(MOODS.keys()).index(st.session_state.mood))
-    st.session_state.mood = mood
-    st.write("Current Mood:", MOODS[mood]["prefix"])
+# After login and setup...
 
-# Games toggle button to show/hide game options
-show_games = st.sidebar.button("🎮 Games")
+st.title("🤖 Welcome to PyBot, " + st.session_state.username)
 
-if show_games:
-    st.subheader("Choose a Game to Play:")
+# Mood selection
+mood = st.radio("Select PyBot's mood:", list(MOODS.keys()), index=list(MOODS.keys()).index(st.session_state.mood))
+st.session_state.mood = mood
 
-    game_choice = st.selectbox("", ["Select a game", "Lucky 7", "Rock Paper Scissors", "Guess the Number"])
+# Display chat history under mood
+history = get_user_history(st.session_state.username)
+st.markdown(f"### 💬 Previous Conversations ({len(history)})")
+for inp, rep in history[-10:]:  # Show last 10 chats
+    st.markdown(f"**You:** {inp}")
+    st.markdown(f"{MOODS[mood]['prefix']} {rep}")
+
+# Games toggle button
+if "show_games" not in st.session_state:
+    st.session_state.show_games = False
+
+if st.button("🎮 Games"):
+    st.session_state.show_games = not st.session_state.show_games
+
+if st.session_state.show_games:
+    st.subheader("🎮 Select a Game to Play")
+
+    game_choice = st.selectbox("", ["Select a game", "Lucky 7", "Rock Paper Scissors", "Guess the Number", "Speed Typing Race", "Car Racing"])
+
+    def play_again():
+        return st.button("Play Again")
 
     if game_choice == "Lucky 7":
-        st.write("Choose your guess:")
-        option = st.radio("", ["Above 7", "=7", "Below 7"])
+        option = st.radio("Pick your guess:", ["Above 7", "=7", "Below 7"])
         if st.button("Play Lucky 7"):
             number = random.randint(1, 12)
-            result = ""
             if (option == "Above 7" and number > 7) or \
                (option == "=7" and number == 7) or \
                (option == "Below 7" and number < 7):
-                result = f"You won! The number was {number}."
+                st.success(f"You won! The number was {number}.")
             else:
-                result = f"You lost! The number was {number}."
-            st.write(result)
+                st.error(f"You lost! The number was {number}.")
+        if play_again():
+            st.experimental_rerun()
 
     elif game_choice == "Rock Paper Scissors":
-        st.write("Choose your move:")
-        user_move = st.radio("", ["Rock", "Paper", "Scissors"])
+        user_move = st.radio("Choose your move:", ["Rock", "Paper", "Scissors"])
         if st.button("Play RPS"):
             comp_move = random.choice(["Rock", "Paper", "Scissors"])
             st.write(f"Computer chose: {comp_move}")
             if user_move == comp_move:
-                st.write("It's a tie!")
+                st.info("It's a tie!")
             elif (user_move == "Rock" and comp_move == "Scissors") or \
                  (user_move == "Paper" and comp_move == "Rock") or \
                  (user_move == "Scissors" and comp_move == "Paper"):
-                st.write("You win!")
+                st.success("You win!")
             else:
-                st.write("You lose!")
+                st.error("You lose!")
+        if play_again():
+            st.experimental_rerun()
 
     elif game_choice == "Guess the Number":
-        st.write("Guess a number between 1 and 20:")
-        guess = st.number_input("", min_value=1, max_value=20, step=1)
+        guess = st.number_input("Guess a number between 1 and 20:", min_value=1, max_value=20, step=1)
         if st.button("Guess"):
             secret = random.randint(1, 20)
             if guess == secret:
-                st.write("Correct! You guessed the number!")
+                st.success("Correct! You guessed the number!")
             else:
-                st.write(f"Wrong! The number was {secret}.")
+                st.error(f"Wrong! The number was {secret}.")
+        if play_again():
+            st.experimental_rerun()
 
-# Display previous chat history
-st.subheader("Chat History")
-history = get_user_history(st.session_state.username)
-if history:
-    for user_msg, bot_reply in history:
-        st.markdown(f"**You:** {user_msg}")
-        st.markdown(f"{MOODS[st.session_state.mood]['prefix']} {bot_reply}")
+    elif game_choice == "Speed Typing Race":
+        phrase = "The quick brown fox jumps over the lazy dog"
+        st.write("Type this phrase exactly as shown and hit Submit:")
+        st.markdown(f"**{phrase}**")
+
+        if "typing_start" not in st.session_state or st.session_state.game_reset:
+            st.session_state.typing_start = time.time()
+            st.session_state.game_reset = False
+
+        user_typing = st.text_input("Start typing here:")
+
+        if st.button("Submit Typing"):
+            if user_typing.strip() == phrase:
+                elapsed = time.time() - st.session_state.typing_start
+                st.success(f"Perfect! Your time: {elapsed:.2f} seconds.")
+            else:
+                st.error("Typed phrase does not match exactly. Try again!")
+        if play_again():
+            st.session_state.game_reset = True
+            st.experimental_rerun()
+
+    elif game_choice == "Car Racing":
+        st.write("When you see GO, press the button as fast as you can!")
+
+        if "car_ready" not in st.session_state:
+            st.session_state.car_ready = False
+        if "car_start_time" not in st.session_state:
+            st.session_state.car_start_time = None
+
+        if not st.session_state.car_ready:
+            if st.button("Get Ready"):
+                delay = random.uniform(2, 5)
+                st.write("Wait for it...")
+                time.sleep(delay)
+                st.write("GO!")
+                st.session_state.car_start_time = time.time()
+                st.session_state.car_ready = True
+        else:
+            if st.button("Press!"):
+                reaction = time.time() - st.session_state.car_start_time
+                st.success(f"Your reaction time: {reaction:.3f} seconds!")
+                st.session_state.car_ready = False
+                st.session_state.car_start_time = None
+        if play_again():
+            st.experimental_rerun()
+
 else:
-    st.write("No previous chats yet.")
-
-# User input
-user_input = st.text_input("Ask me anything:")
-
-if user_input:
-    reply = get_response(user_input)
-    st.markdown(f"{MOODS[st.session_state.mood]['prefix']} **{reply}**")
-    save_chat(st.session_state.username, user_input, reply)
-    text_to_speech(reply)
+    # Main chatbot input/output UI when games hidden
+    user_input = st.text_input(f"{MOODS[mood]['prefix']} Enter your message:")
+    if st.button("Send") and user_input.strip():
+        reply = get_response(user_input.strip())
+        st.markdown(f"**You:** {user_input}")
+        st.markdown(f"{MOODS[mood]['prefix']} {reply}")
+        save_chat(st.session_state.username, user_input, reply)
