@@ -131,7 +131,7 @@ def get_response(user_input):
     return reply
 
 # ---------- Session Setup ---------- #
-cookie = st.experimental_get_query_params().get("user")
+cookie = st.query_params.get("user")
 if cookie:
     st.session_state.logged_in = True
     st.session_state.username = cookie[0]
@@ -180,3 +180,77 @@ if not st.session_state.logged_in:
     st.stop()
 
 # Continue with main app UI setup below as-is...
+# ---------- Main App UI ---------- #
+st.title(f"🤖 PyBot - Python Learning Assistant ({st.session_state.username})")
+
+with st.sidebar:
+    st.header("Settings")
+    mood = st.selectbox("Choose Mood", list(MOODS.keys()), index=list(MOODS.keys()).index(st.session_state.mood))
+    st.session_state.mood = mood
+    st.write("Current Mood:", MOODS[mood]["prefix"])
+
+# Games toggle button to show/hide game options
+show_games = st.sidebar.button("🎮 Games")
+
+if show_games:
+    st.subheader("Choose a Game to Play:")
+
+    game_choice = st.selectbox("", ["Select a game", "Lucky 7", "Rock Paper Scissors", "Guess the Number"])
+
+    if game_choice == "Lucky 7":
+        st.write("Choose your guess:")
+        option = st.radio("", ["Above 7", "=7", "Below 7"])
+        if st.button("Play Lucky 7"):
+            number = random.randint(1, 12)
+            result = ""
+            if (option == "Above 7" and number > 7) or \
+               (option == "=7" and number == 7) or \
+               (option == "Below 7" and number < 7):
+                result = f"You won! The number was {number}."
+            else:
+                result = f"You lost! The number was {number}."
+            st.write(result)
+
+    elif game_choice == "Rock Paper Scissors":
+        st.write("Choose your move:")
+        user_move = st.radio("", ["Rock", "Paper", "Scissors"])
+        if st.button("Play RPS"):
+            comp_move = random.choice(["Rock", "Paper", "Scissors"])
+            st.write(f"Computer chose: {comp_move}")
+            if user_move == comp_move:
+                st.write("It's a tie!")
+            elif (user_move == "Rock" and comp_move == "Scissors") or \
+                 (user_move == "Paper" and comp_move == "Rock") or \
+                 (user_move == "Scissors" and comp_move == "Paper"):
+                st.write("You win!")
+            else:
+                st.write("You lose!")
+
+    elif game_choice == "Guess the Number":
+        st.write("Guess a number between 1 and 20:")
+        guess = st.number_input("", min_value=1, max_value=20, step=1)
+        if st.button("Guess"):
+            secret = random.randint(1, 20)
+            if guess == secret:
+                st.write("Correct! You guessed the number!")
+            else:
+                st.write(f"Wrong! The number was {secret}.")
+
+# Display previous chat history
+st.subheader("Chat History")
+history = get_user_history(st.session_state.username)
+if history:
+    for user_msg, bot_reply in history:
+        st.markdown(f"**You:** {user_msg}")
+        st.markdown(f"{MOODS[st.session_state.mood]['prefix']} {bot_reply}")
+else:
+    st.write("No previous chats yet.")
+
+# User input
+user_input = st.text_input("Ask me anything:")
+
+if user_input:
+    reply = get_response(user_input)
+    st.markdown(f"{MOODS[st.session_state.mood]['prefix']} **{reply}**")
+    save_chat(st.session_state.username, user_input, reply)
+    text_to_speech(reply)
