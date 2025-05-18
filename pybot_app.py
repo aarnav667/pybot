@@ -4,17 +4,18 @@ import csv
 import os
 import re
 import requests
-from difflib import get_close_matches
+from difflib import get_close_matches, SequenceMatcher
 from bs4 import BeautifulSoup
 from gtts import gTTS
 import tempfile
 import base64
+import speech_recognition as sr
 
 # ---------- Files ---------- #
 SCORE_FILE = 'scoreboard.pkl'
 KNOWLEDGE_FILE = 'knowledge.pkl'
 KNOWLEDGE_CSV = 'knowledge.csv'
-USERS = {'admin': '1234', 'student': 'python'}  # Simple login system
+USERS_FILE = 'users.pkl'
 
 # ---------- Mood Settings ---------- #
 MOODS = {
@@ -49,6 +50,14 @@ def load_from_csv():
                 knowledge[row['Question'].lower()] = row['Answer']
     return knowledge
 
+def suggest_username(name, user_dict):
+    if name not in user_dict:
+        return name
+    i = 1
+    while f"{name}{i}" in user_dict:
+        i += 1
+    return f"{name}{i}"
+
 # ---------- Voice --------- #
 def text_to_speech(text):
     tts = gTTS(text)
@@ -80,7 +89,7 @@ def google_search(query):
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         snippet = soup.find('div', class_='BNeawe s3v9rd AP7Wnd')
-        return snippet.text if snippet else "No direct answer found."
+        return snippet.text if snippet else "No direct answer found, but I searched Google."
     except Exception as e:
         return f"Search error: {str(e)}"
 
@@ -140,19 +149,34 @@ if "scores" not in st.session_state:
 if "knowledge" not in st.session_state:
     st.session_state.knowledge = load_data(KNOWLEDGE_FILE)
     st.session_state.knowledge.update(load_from_csv())
+if "users" not in st.session_state:
+    st.session_state.users = load_data(USERS_FILE) or {"admin": "1234", "student": "python"}
 
-# ---------- Login UI ---------- #
+# ---------- Login/Signup UI ---------- #
 if not st.session_state.logged_in:
     st.title("🔐 PyBot Login")
+    mode = st.radio("Choose action", ["Log in", "Sign up"])
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
-    if st.button("Log in"):
-        if username in USERS and USERS[username] == password:
+
+    if mode == "Log in" and st.button("Log in"):
+        if username in st.session_state.users and st.session_state.users[username] == password:
             st.session_state.logged_in = True
             st.success("Login successful!")
             st.rerun()
         else:
             st.error("Invalid username or password.")
+
+    elif mode == "Sign up" and st.button("Sign up"):
+        if username in st.session_state.users:
+            suggestion = suggest_username(username, st.session_state.users)
+            st.warning(f"Username already exists. Try: {suggestion}")
+        else:
+            st.session_state.users[username] = password
+            save_data(st.session_state.users, USERS_FILE)
+            st.success("Sign up successful! You can now log in.")
+            st.rerun()
+
     st.stop()
 
 # ---------- Main App UI ---------- #
@@ -165,6 +189,19 @@ with st.sidebar:
     st.write("Current Mood:", MOODS[st.session_state.mood]["prefix"])
 
 user_input = st.text_input("Ask me anything:")
+
+if st.button("🎙️ Voice Input"):
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.info("Listening...")
+        audio = r.listen(source)
+        try:
+            user_input = r.recognize_google(audio)
+            st.success(f"You said: {user_input}")
+        except sr.UnknownValueError:
+            st.error("Could not understand audio")
+        except sr.RequestError as e:
+            st.error(f"Could not request results; {e}")
 
 if user_input:
     reply = get_response(user_input)
