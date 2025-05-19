@@ -124,15 +124,15 @@ def google_search(query):
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a highly intelligent assistant who always tries to give an answer, even if it requires a bit of reasoning."},
+                {"role": "system", "content": "You are a helpful assistant who always provides answers as best as possible."},
                 {"role": "user", "content": query}
             ]
         )
         result = response.choices[0].message['content'].strip()
-        return result if result else "Here’s what I found, though it's not a direct answer."
+        return result if result else "Sorry, I couldn't find an answer."
     except Exception as e:
         print(f"[ChatGPT Error] {e}")
-        return "I tried looking it up, but ran into an issue."
+        return "I tried looking it up but ran into an issue."
 
 def search_knowledge(user_input, sources):
     for source in sources:
@@ -264,7 +264,7 @@ elif selected == "Games":
             else:
                 st.info("Try a lower number.")
     elif game == "Hangman":
-        st.markdown("### ⛓️ Hangman is coming soon!")
+        st.markdown("### ⛓️ Coming soon: Hangman game!")
 
 # ---------- Settings Page ---------- #
 elif selected == "Settings":
