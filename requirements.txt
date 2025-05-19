@@ -6,3 +6,4 @@ requests
 colorama
 gTTS
 streamlit-extras
+google-generativeai
