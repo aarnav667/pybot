@@ -12,6 +12,11 @@ import base64
 import random
 import pandas as pd
 import time
+import google.generativeai as genai
+
+# ---------- API Setup ---------- #
+GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
+genai.configure(api_key=GOOGLE_API_KEY)
 
 # ---------- Files ---------- #
 SCORE_FILE = 'scoreboard.pkl'
@@ -114,18 +119,12 @@ def calculate(expression):
 
 def google_search(query):
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        url = f"https://www.google.com/search?q={query}"
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        snippets = soup.select("div.BNeawe.s3v9rd.AP7Wnd")
-        for snippet in snippets:
-            text = snippet.get_text().strip()
-            if len(text) > 50:
-                return text
-        return "I found some information, but couldn't extract a clear answer."
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(query)
+        result = response.text.strip()
+        return result if result else "Here’s what I found, though it's not a direct answer."
     except Exception as e:
-        return f"Search error: {str(e)}"
+        return "Here’s what I found from Google, though it's not a direct answer."
 
 def search_knowledge(user_input, sources):
     for source in sources:
@@ -140,15 +139,13 @@ def get_response(user_input):
         search_knowledge(user_input_lower, [responses, st.session_state.knowledge, python_keywords, python_topics])
         or calculate(user_input_lower)
         or google_search(user_input_lower)
-        or "I'm not sure about that. Could you try rephrasing?"
     )
     return reply
 
 # ---------- Session Setup ---------- #
-cookie = st.query_params.get("user")
-if cookie:
-    st.session_state.logged_in = True
-    st.session_state.username = cookie
+if "page_configured" not in st.session_state:
+    st.set_page_config(page_title="PyBot", layout="wide")
+    st.session_state.page_configured = True
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -166,7 +163,6 @@ if "mood" not in st.session_state:
 
 # ---------- Login/Signup UI ---------- #
 if not st.session_state.logged_in:
-    st.set_page_config(page_title="PyBot Login", layout="centered")
     st.title("🔐 PyBot Login")
     mode = st.radio("Choose action", ["Log in", "Sign up"])
     username = st.text_input("Username")
@@ -185,8 +181,8 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.session_state.username = username
             st.experimental_set_query_params(user=username)
-            st.success("Login successful!")
-            st.rerun()
+            st.success("Login successful! Redirecting...")
+            st.experimental_rerun()
         else:
             st.error("Invalid username or password.")
 
@@ -198,23 +194,11 @@ if not st.session_state.logged_in:
             st.session_state.users[username] = password
             save_data(st.session_state.users, USERS_FILE)
             st.success("Sign up successful! You can now log in.")
-            st.rerun()
+            st.experimental_rerun()
 
     st.stop()
 
 # ---------- Main App Layout ---------- #
-st.set_page_config(page_title="PyBot", layout="wide")
-st.sidebar.title("⚙️ Settings")
-st.sidebar.selectbox("Choose Mood", list(MOODS.keys()), key="mood")
-if st.sidebar.button("Logout"):
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.experimental_set_query_params()
-    st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("🌟 [Rate PyBot](https://forms.gle/your-form-link)")
-
 st.title("🤖 Welcome to PyBot")
 st.markdown(f"### {MOODS[st.session_state.mood]['prefix']} How can I assist you today?")
 
