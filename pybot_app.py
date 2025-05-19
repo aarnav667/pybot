@@ -180,9 +180,10 @@ if not st.session_state.logged_in:
         if username in st.session_state.users and st.session_state.users[username] == password:
             st.session_state.logged_in = True
             st.session_state.username = username
-            st.experimental_set_query_params(user=username)
-            st.success("Login successful! Redirecting...")
-            st.experimental_rerun()
+            st.success("Login successful!")
+            time.sleep(1)
+            st.rerun()
+
         else:
             st.error("Invalid username or password.")
 
