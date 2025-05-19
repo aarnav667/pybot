@@ -127,9 +127,7 @@ def google_search(query):
         model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(query)
         result = response.text.strip()
-        return result if result else "Here’s what I found, though it's not a direct answer."
-    except Exception:
-        return "I tried looking it up, but ran into an issue."
+        return result if result
 
 def search_knowledge(user_input, sources):
     for source in sources:
