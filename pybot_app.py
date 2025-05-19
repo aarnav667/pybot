@@ -124,7 +124,7 @@ def google_search(query):
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": "You are a highly intelligent assistant who always tries to give an answer, even if it requires a bit of reasoning."},
                 {"role": "user", "content": query}
             ]
         )
@@ -210,8 +210,9 @@ with st.sidebar:
     st.markdown("## 🗂️ Sessions")
     sessions = get_user_chat_sessions()
     for session in sessions:
-        if session == st.session_state.username:
-            st.markdown(f"- **{session}**")
+        if st.button(session):
+            st.session_state.username = session
+            st.rerun()
     selected = option_menu("Main Menu", ["Chat", "Past Conversations", "Games", "Settings"],
                            icons=["chat-dots", "clock-history", "controller", "gear"],
                            menu_icon="robot", default_index=0)
@@ -220,6 +221,11 @@ with st.sidebar:
 if selected == "Chat":
     st.title("🤖 Welcome to PyBot")
     st.markdown(f"### {MOODS[st.session_state.mood]['prefix']} How can I assist you today?")
+
+    history = get_user_history(st.session_state.username)
+    for msg in history:
+        st.chat_message("user").markdown(msg[0])
+        st.chat_message("assistant").markdown(f"{MOODS[st.session_state.mood]['prefix']} {msg[1]}")
 
     user_input = st.chat_input("Say something...")
     if user_input:
