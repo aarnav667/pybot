@@ -128,6 +128,8 @@ def google_search(query):
         response = model.generate_content(query)
         result = response.text.strip()
         return result if result else result
+    except Exception:
+        return result
 
 def search_knowledge(user_input, sources):
     for source in sources:
