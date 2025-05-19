@@ -127,7 +127,7 @@ def google_search(query):
         model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(query)
         result = response.text.strip()
-        return result if result
+        return result if result else result
 
 def search_knowledge(user_input, sources):
     for source in sources:
