@@ -126,10 +126,15 @@ def google_search(query):
     try:
         model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(query)
-        result = response.text.strip()
-        return result if result else result
-    except Exception:
-        return result
+        if hasattr(response, 'text'):
+            result = response.text.strip()
+            return result if result else "I searched but couldn’t find anything specific."
+        else:
+            return "I tried, but the response didn’t contain readable information."
+    except Exception as e:
+        # Log the error for debugging (optional: print or send to logs)
+        print(f"[Gemini Error] {e}")
+        return "I tried looking it up, but ran into an error with the AI model."
 
 def search_knowledge(user_input, sources):
     for source in sources:
