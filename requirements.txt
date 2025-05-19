@@ -7,3 +7,4 @@ colorama
 gTTS
 streamlit-extras
 google-generativeai
+streamlit-option-menu
