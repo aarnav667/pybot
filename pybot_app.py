@@ -12,13 +12,13 @@ import base64
 import random
 import pandas as pd
 import time
-import google.generativeai as genai
+import openai
 from streamlit_option_menu import option_menu
 from PIL import Image
 
 # ---------- API Setup ---------- #
-GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
-genai.configure(api_key=GOOGLE_API_KEY)
+OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
+openai.api_key = OPENAI_API_KEY
 
 # ---------- Files ---------- #
 SCORE_FILE = 'scoreboard.pkl'
@@ -97,21 +97,18 @@ def get_user_chat_sessions():
 
 # ---------- Voice --------- #
 def text_to_speech(text):
-    try:
-        tts = gTTS(text)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            tts.save(fp.name)
-            audio_file = open(fp.name, 'rb')
-            audio_bytes = audio_file.read()
-            b64 = base64.b64encode(audio_bytes).decode()
-            md = f"""
-            <audio autoplay>
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-            """
-            st.markdown(md, unsafe_allow_html=True)
-    except Exception as e:
-        st.warning(f"Voice generation failed: {e}")
+    tts = gTTS(text)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+        tts.save(fp.name)
+        audio_file = open(fp.name, 'rb')
+        audio_bytes = audio_file.read()
+        b64 = base64.b64encode(audio_bytes).decode()
+        md = f"""
+        <audio autoplay>
+        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        """
+        st.markdown(md, unsafe_allow_html=True)
 
 # ---------- Search / Logic ---------- #
 def calculate(expression):
@@ -124,17 +121,18 @@ def calculate(expression):
 
 def google_search(query):
     try:
-        model = genai.GenerativeModel('gemini-pro')
-        response = model.generate_content(query)
-        if hasattr(response, 'text'):
-            result = response.text.strip()
-            return result if result else "I searched but couldn’t find anything specific."
-        else:
-            return "I tried, but the response didn’t contain readable information."
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": query}
+            ]
+        )
+        result = response.choices[0].message['content'].strip()
+        return result if result else "Here’s what I found, though it's not a direct answer."
     except Exception as e:
-        # Log the error for debugging (optional: print or send to logs)
-        print(f"[Gemini Error] {e}")
-        return "I tried looking it up, but ran into an error with the AI model."
+        print(f"[ChatGPT Error] {e}")
+        return "I tried looking it up, but ran into an issue."
 
 def search_knowledge(user_input, sources):
     for source in sources:
